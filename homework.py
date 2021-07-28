@@ -1,17 +1,12 @@
+import logging
 import os
 import time
-from datetime import timedelta, datetime
-import requests
-from telegram import Bot
-from dotenv import load_dotenv
-import logging
 from logging.handlers import RotatingFileHandler
 
+import requests
+from dotenv import load_dotenv
+from telegram import Bot
 
-# деплой бота не выполнял на Heroku, но если необходимо
-# для сдачи проекта, то все будет к следующему разу
-# не хочется деплоить этот ужас, чтобы он мне присылал
-# ошибки в час ночи и пугал :))))
 logging.basicConfig(
     level=logging.DEBUG,
     filename='homework_bot_log.log',
@@ -22,7 +17,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 handler = RotatingFileHandler(
     'homework_bot_log.log',
-    maxBytes=50000000,
+    maxBytes=50_000_000,
     backupCount=5
 )
 logger.addHandler(handler)
@@ -32,26 +27,46 @@ load_dotenv()
 PRAKTIKUM_TOKEN = os.getenv('PRAKTIKUM_TOKEN')
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
-
+URL_YAND = 'https://praktikum.yandex.ru/api/user_api/homework_statuses/'
+PAUSE_CHECK = 300
+PAUSE_ER = 5
 
 bot = Bot(token=TELEGRAM_TOKEN)
 
 
 def parse_homework_status(homework):
-    homework_name = homework['homework_name']
+    if homework['homework_name']:
+        homework_name = homework['homework_name']
+    else:
+        homework_name = 'название неизвестно'
     if homework['status'] == 'rejected':
         verdict = 'К сожалению, в работе нашлись ошибки.'
-    else:
+    elif homework['status'] == 'reviewing':
+        verdict = 'Работа взята на ревью.'
+    elif homework['status'] == 'approved':
         verdict = 'Ревьюеру всё понравилось, работа зачтена!'
+    else:
+        logging.info(homework['status'])
+        return f'Ваша работа {homework_name} пришла с неизвестным статусом'
     return f'У вас проверили работу "{homework_name}"!\n\n{verdict}'
 
 
 def get_homeworks(current_timestamp):
-    url = 'https://praktikum.yandex.ru/api/user_api/homework_statuses/'
+    url = URL_YAND
     headers = {'Authorization': f'OAuth {PRAKTIKUM_TOKEN}'}
     payload = {'from_date': current_timestamp}
-    homework_statuses = requests.get(url, headers=headers, params=payload)
-    return homework_statuses.json()
+    try:
+        homework_statuses = requests.get(url, headers=headers, params=payload)
+    except requests.exceptions.RequestException as e:
+        logging.exception(f'ошибка{e}')
+    except Exception as e:
+        logging.exception(f'ошибка{e}')
+    try:
+        homework_statuses.json()
+    except SyntaxError as e:
+        logging.exception(f'ошибка{e}')
+    else:
+        return homework_statuses.json()
 
 
 def send_message(message):
@@ -59,28 +74,26 @@ def send_message(message):
 
 
 def main():
-    now = datetime.now()
-    from_date = now - timedelta(hours=1)
-    unix_date = int(time.mktime(from_date.timetuple()))
+    current_timestamp = int(time.time())
 
     while True:
         try:
-            homeworks_all = get_homeworks(unix_date)
+            homeworks_all = get_homeworks(current_timestamp)
             homeworks = homeworks_all['homeworks']
-            if homeworks != []:
+            if homeworks:
                 for homework in homeworks:
                     message = parse_homework_status(homework)
                     send_message(message)
                     logging.info('Сообщение отправлено!')
-            time.sleep(5 * 60)
+            time.sleep(PAUSE_CHECK)
+            current_timestamp = int(time.time())
 
         except Exception as e:
             exc = f'Бот упал с ошибкой: {e}'
-            print(exc)
             logging.exception(f'ошибка{e}')
             send_message(exc)
             logging.info('Сообщение отправлено!')
-            time.sleep(5)
+            time.sleep(PAUSE_ER)
 
 
 if __name__ == '__main__':
