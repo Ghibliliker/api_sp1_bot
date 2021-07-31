@@ -42,11 +42,11 @@ bot = Bot(token=TELEGRAM_TOKEN)
 
 def parse_homework_status(homework):
     homework_name = homework.get('homework_name', 'название неизвестно')
-    if homework['status'] in ANSWERS:
-        status = homework['status']
+    status = homework.get('status', 'статус неизвестен')
+    if status in ANSWERS:
         verdict = ANSWERS[status]
     else:
-        logging.info(homework['status'])
+        logging.info(status)
         return f'Ваша работа {homework_name} пришла с неизвестным статусом'
     return f'У вас проверили работу "{homework_name}"!\n\n{verdict}'
 
@@ -89,6 +89,7 @@ def main():
                     message = parse_homework_status(homework)
                     send_message(message)
             time.sleep(PAUSE_CHECK)
+            current_timestamp = homeworks_all['current_date']
 
         except Exception as e:
             send_exc_message(e)
